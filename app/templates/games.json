@@ -1,0 +1,21 @@
+{
+    "games" :[
+    {% for game in games %}
+    {
+        "id" : {{game.id}},
+        "secret_word" : "{{game.secret_word}}",
+        "score" : {{game.score}},
+        "multiplier" : {{game.multiplier}},
+        "user_guess" :[
+            {% for character in game.user_guess_list %}
+            "{{character}}"{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ],
+        "misses" : {{game.misses}},
+        "status": "{{game.status}}",
+        "location": "{{game.location}}",
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+    ],
+    "total": {{games|length}}
+}
