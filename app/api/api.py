@@ -113,6 +113,15 @@ class Games(Resource):
 
         # Inexistent resource
         if id == None:
+            filters = request.args.get('query', default = '*', type = str)
+            #query=Hangman.query
+            #for f in filters:
+            #    query = f.apply(query, Pet, PetSchema)
+            #print(query)
+            #print(Hangman.query.filter(query).all())
+
+            #games = db.session.query(Game, User).filter(User.id == Hangman.user_id, Game.status=='WON').order_by(desc(Game.score)).limit(10)
+   
             games = Hangman.query.filter_by(user_id = get_jwt_identity(), status = 'ACTIVE').all()
         else:
             games = Hangman.query.filter_by(id=id, user_id = get_jwt_identity(), status = 'ACTIVE').all()
@@ -145,7 +154,7 @@ class Games(Resource):
             "secret_word": game.secret_word,
             "score" : game.score,
             "multiplier" :game.multiplier,
-            "user_guess" : game.user_guess_list,
+            "user_guess" : game.user_guess,
             "misses" : game.misses,
             "status":game.status
             }), 201)
@@ -176,10 +185,12 @@ class Games(Resource):
         if game.status != 'ACTIVE':
             abort(422,'Game is finished')
 
-        # The user guess is not accepted
-        if not game.set_user_guess(user_guess):
-            abort(422, "Invalid parameter 'user_guess'")
-
+        try:
+            game.set_user_guess(user_guess)
+        except Exception as e:
+            print(e)
+            abort(422, "Invalid parameter 'user_guess: {}'".format(user_guess))
+            
         db.session.add(game)
         db.session.commit()
 
@@ -189,7 +200,7 @@ class Games(Resource):
             "secret_word": game.secret_word,
             "score" : game.score,
             "multiplier" :game.multiplier,
-            "user_guess" : game.user_guess_list,
+            "user_guess" : game.user_guess,
             "misses" : game.misses,
             "status":game.status
             }), 200)

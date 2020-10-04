@@ -13,7 +13,7 @@
         ],
         "misses" : {{game.misses}},
         "status": "{{game.status}}",
-        "location": "{{game.location}}",
+        "location": "{{game.location}}"
     }{% if not loop.last %},{% endif %}
     {% endfor %}
     ],
