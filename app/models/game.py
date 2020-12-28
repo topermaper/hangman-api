@@ -23,8 +23,10 @@ class Game(db.Model):
         self.misses      = 0
         self.status      = "ACTIVE"
 
+
     def __repr__(self):
-        return "Game:{}, status:{}, score:{}, guesses:'{}', misses:{} multiplier:x{}".format(self.id,self.status,self.score,self.user_guess,self.misses,self.multiplier)
+        return "id:{}, status:{}, score:{}, user_guess:'{}', misses:{}, multiplier:x{}".format(self.id,self.status,self.score,self.user_guess,self.misses,self.multiplier)
+
 
     def serialize(self):
         return json.dumps({

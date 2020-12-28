@@ -1,15 +1,86 @@
 import json
-from flask_restful import Api, Resource
-from flask import request, jsonify, url_for, abort, make_response,render_template
-from werkzeug.security import generate_password_hash
-from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, jwt_refresh_token_required, get_jwt_identity, get_raw_jwt
 
-from app import app, db, api
+from flask import request, jsonify, abort, make_response
+from flask_restful import Api, Resource
+from flask_restless import APIManager, ProcessingException
+
+from werkzeug.security import generate_password_hash
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, jwt_refresh_token_required, get_jwt_identity
+
+from app import app, db
 from app.models.user import User
+from app.models.game import Game
 from app.models.hangman import Hangman
 
+apimanager = APIManager(app, flask_sqlalchemy_db=db)
+
+
+@jwt_required
+def user_post_preprocessor(data=None, **kw):
+    data['password'] = generate_password_hash(data.get('password'), method='sha256')
+
+
+@jwt_required
+def game_post_preprocessor(data=None, **kw):
+    if data['user_id'] != get_jwt_identity():
+        raise ProcessingException(description="You don't have permission to create game for user {}".format(data['user_id']),
+                                  code=403)
+
+
+@jwt_required
+def user_get_many_preprocessor(*args, **kwargs):
+    current_user_filter = dict(name='id', op='eq', val=get_jwt_identity())
+    kwargs['search_params'].setdefault('filters',[]).append(current_user_filter)
+
+
+@jwt_required
+def game_patch_single_preprocessor(instance_id=None, data=None, **kw):
+    hangman = Hangman.query.get(instance_id)
+
+    if hangman == None:
+        raise ProcessingException(description="Game {} does not exist".format(instance_id), code=404)
+
+    if hangman.user_id != get_jwt_identity():
+        raise ProcessingException(description="User doesn't own game {}".format(instance_id),
+                                  code=403)
+
+    if hangman.status != 'ACTIVE':
+        raise ProcessingException(description="Game {} is not playable".format(instance_id),
+                                  code=422)
+
+    try:
+        hangman.set_user_guess(data['user_guess'])
+    except Exception as e:
+        raise ProcessingException(description=str(e), code=422)
+   
+    # Filter data dictionary
+    accepted_keys = ['user_guess']
+    # Can not iterate and delete dict keys since data.keys() returns iterable so we convert to list
+    for key in list(data.keys()):
+        if key not in accepted_keys:
+            del data[key]
+
+
+apimanager.create_api(
+    User,
+    url_prefix = app.config["BASE_API_URL"],
+    collection_name = "user",
+    methods =['GET','POST'],
+    exclude_columns=['password'],
+    preprocessors={'POST': [user_post_preprocessor], 'GET_MANY': [user_get_many_preprocessor]}
+)
+
+apimanager.create_api(
+    Game,
+    url_prefix=app.config["BASE_API_URL"],
+    collection_name="game",
+    methods =[ 'GET', 'POST', 'PATCH'],
+    exclude_columns=['user_id','user.password'],
+    preprocessors={'POST': [game_post_preprocessor], 'PATCH_SINGLE': [game_patch_single_preprocessor]}
+)
 
 api = Api()
+
 
 class Login(Resource):
     def post(self):
@@ -22,7 +93,7 @@ class Login(Resource):
             abort(400, "Email or password is missing")
 
         user = User.query.filter_by(email = email).first()
-        # this user already exist
+        # this user does not exist
         if user is None:
             abort(400, "Non existent user '{}'".format(email))
 
@@ -37,176 +108,12 @@ class Login(Resource):
             'access_token': access_token,
             'refresh_token': refresh_token,
             'message': 'Logged in as {}'.format(user.email),
-            }), 200)
-
-        # Return user resource in location header
-        res.headers["Location"] = api.url_for(Users, id = user.id, _external = True)
-        return res
-
-class Users(Resource):
-
-    @jwt_required
-    def get(self, id=None):
-
-        # Inexistent resource
-        if id == None:
-            abort(404)
-        user = User.query.get_or_404(id)
-
-        # Don't have permission to retrieve this user
-        if get_jwt_identity() != id:
-            abort(401)
-
-        res = make_response(jsonify({
-            "email":user.email,
-            "name": user.name
-            }), 200)
-
-        res.headers["Location"] = api.url_for(self, id = user.id, _external = True)
-        return res
-
-
-    def post(self):
-        name     = request.json.get("name")
-        email    = request.json.get("email")
-        password = request.json.get("password")
-
-        # missing arguments
-        if name is None or email is None or password is None:
-            abort(400)
-
-        # already registered with this email
-        if User.query.filter_by(email = email).first() is not None:
-            abort(400,"User already registered with this email")
-
-        # create new user hashing the password
-        new_user = User(email=email, name=name, password=generate_password_hash(password, method='sha256'))
-
-        try:
-            db.session.add(new_user)
-            db.session.commit()
-            access_token  = create_access_token(identity = new_user.id)
-            refresh_token = create_refresh_token(identity = new_user.id)
-        except:
-            abort(500)
-
-        # Return resource location in the response header
-        res = make_response(jsonify({
-            'access_token': access_token,
-            'refresh_token': refresh_token,
-            'user':{
-                'email' : new_user.email,
-                'name':  new_user.name
-                } ,
-            'message' : 'User registered successfully'
-            }), 201)
-
-        res.headers["Location"] = api.url_for(self, id = new_user.id, _external = True)
-
-        return res
-
-
-class Games(Resource):
-
-    @jwt_required
-    def get(self, id=None):
-
-        # Inexistent resource
-        if id == None:
-            filters = request.args.get('query', default = '*', type = str)
-            #query=Hangman.query
-            #for f in filters:
-            #    query = f.apply(query, Pet, PetSchema)
-            #print(query)
-            #print(Hangman.query.filter(query).all())
-
-            #games = db.session.query(Game, User).filter(User.id == Hangman.user_id, Game.status=='WON').order_by(desc(Game.score)).limit(10)
-   
-            games = Hangman.query.filter_by(user_id = get_jwt_identity(), status = 'ACTIVE').all()
-        else:
-            games = Hangman.query.filter_by(id=id, user_id = get_jwt_identity(), status = 'ACTIVE').all()
-
-        # We don't have permission to retrieve this game
-        if games == None:
-            abort(404)
-
-        # Load and parse the JSON so it can be beautified
-        res = render_template('games.json', games=games)
-        parsed_json = json.loads(res)
-        res = json.dumps(parsed_json, indent = 4, sort_keys=False)
-
-        res = make_response(res, 200)
-
-        return res
-
-            
-    @jwt_required
-    def post(self):
-
-        game = Hangman(get_jwt_identity())
-
-        db.session.add(game)
-        db.session.commit()
-
-        # Return resource location in the response header
-        res = make_response(jsonify({
-            "id":game.id,
-            "secret_word": game.secret_word,
-            "score" : game.score,
-            "multiplier" :game.multiplier,
-            "user_guess" : game.user_guess,
-            "misses" : game.misses,
-            "status":game.status
-            }), 201)
-
-        res.headers["Location"] = api.url_for(self, id = game.id, _external = True)
-
-        return res
-
-
-    @jwt_required
-    def patch(self, id=None):
-
-        # Inexistent resource
-        if id == None:
-            abort(404)
-        game = Hangman.query.get_or_404(id)
-
-        user_guess = request.json.get("user_guess")
-
-        # missing arguments
-        if user_guess is None:
-            abort(400,"Missing field 'user_guess'")
-
-        # We don't have permission to patch this game
-        if get_jwt_identity() != game.user_id:
-            abort(401,"You can only play your own games")
-
-        if game.status != 'ACTIVE':
-            abort(422,'Game is finished')
-
-        try:
-            game.set_user_guess(user_guess)
-        except Exception as e:
-            print(e)
-            abort(422, "Invalid parameter 'user_guess: {}'".format(user_guess))
-            
-        db.session.add(game)
-        db.session.commit()
-
-        # Return patched resource
-        res = make_response(jsonify({
-            "id":game.id,
-            "secret_word": game.secret_word,
-            "score" : game.score,
-            "multiplier" :game.multiplier,
-            "user_guess" : game.user_guess,
-            "misses" : game.misses,
-            "status":game.status
-            }), 200)
-
-        # Return resource location in the response header
-        res.headers["Location"] = api.url_for(self, id = game.id, _external = True)
+            'user' : {
+                'id'    : user.id,
+                'email' : user.email,
+                'name'  : user.name
+            }
+        }), 200)
 
         return res
 
@@ -214,6 +121,5 @@ class Games(Resource):
 class Token(Resource):
     @jwt_refresh_token_required
     def post(self):
-
         access_token = create_access_token(identity = get_jwt_identity())
         return make_response(jsonify({'access_token': access_token}),200)
