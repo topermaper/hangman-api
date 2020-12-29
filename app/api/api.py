@@ -15,9 +15,34 @@ from app.models.hangman import Hangman
 apimanager = APIManager(app, flask_sqlalchemy_db=db)
 
 
+# Need the preprocessor to protect the endpoint with jwt
 @jwt_required
+def user_get_preprocessor(instance_id=None, **kw):
+    pass
+
+
+# Need the preprocessor to protect the endpoint with jwt
+@jwt_required
+def user_get_many_preprocessor(search_params=None, **kw):
+    pass
+
+
+# We don't need @jwt_required to create a user, everyone is allowed
 def user_post_preprocessor(data=None, **kw):
     data['password'] = generate_password_hash(data.get('password'), method='sha256')
+
+
+# Need the preprocessor to protect the endpoint with jwt
+@jwt_required
+def game_get_preprocessor(instance_id=None, **kw):
+    pass
+
+
+# Need the preprocessor to protect the endpoint with jwt
+@jwt_required
+def game_get_many_preprocessor(search_params=None, **kw):
+    print('game_get_many_preprocessor')
+    pass
 
 
 @jwt_required
@@ -28,17 +53,12 @@ def game_post_preprocessor(data=None, **kw):
 
 
 @jwt_required
-def user_get_many_preprocessor(*args, **kwargs):
-    current_user_filter = dict(name='id', op='eq', val=get_jwt_identity())
-    kwargs['search_params'].setdefault('filters',[]).append(current_user_filter)
-
-
-@jwt_required
 def game_patch_single_preprocessor(instance_id=None, data=None, **kw):
     hangman = Hangman.query.get(instance_id)
 
     if hangman == None:
-        raise ProcessingException(description="Game {} does not exist".format(instance_id), code=404)
+        raise ProcessingException(description="Game {} does not exist".format(instance_id),
+                                  code=404)
 
     if hangman.user_id != get_jwt_identity():
         raise ProcessingException(description="User doesn't own game {}".format(instance_id),
@@ -67,7 +87,7 @@ apimanager.create_api(
     collection_name = "user",
     methods =['GET','POST'],
     exclude_columns=['password'],
-    preprocessors={'POST': [user_post_preprocessor], 'GET_MANY': [user_get_many_preprocessor]}
+    preprocessors={'POST': [user_post_preprocessor], 'GET_SINGLE': [user_get_preprocessor], 'GET_MANY': [user_get_many_preprocessor]}
 )
 
 apimanager.create_api(
@@ -76,7 +96,7 @@ apimanager.create_api(
     collection_name="game",
     methods =[ 'GET', 'POST', 'PATCH'],
     exclude_columns=['user_id','user.password'],
-    preprocessors={'POST': [game_post_preprocessor], 'PATCH_SINGLE': [game_patch_single_preprocessor]}
+    preprocessors={'POST': [game_post_preprocessor], 'GET_SINGLE': [game_get_preprocessor],  'GET_MANY': [game_get_many_preprocessor], 'PATCH_SINGLE': [game_patch_single_preprocessor]}
 )
 
 api = Api()
