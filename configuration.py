@@ -20,7 +20,7 @@ class BaseConfig(object):
     # API configuration
     BASE_API_URL     = '/api/v1'
 
-    JWT_ACCESS_TOKEN_EXPIRES = datetime.timedelta(seconds=600)
+    JWT_ACCESS_TOKEN_EXPIRES  = datetime.timedelta(seconds=300)
     JWT_REFRESH_TOKEN_EXPIRES = datetime.timedelta(seconds=3600)
 
 class ProductionConfig(BaseConfig):

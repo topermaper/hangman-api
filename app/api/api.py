@@ -29,6 +29,11 @@ def user_get_many_preprocessor(search_params=None, **kw):
 
 # We don't need @jwt_required to create a user, everyone is allowed
 def user_post_preprocessor(data=None, **kw):
+    user = User.query.filter_by(email = data['email']).first()
+    # this user does not exist
+    if user is not None:
+        raise ProcessingException(description = 'Email address already in use', code=422)
+
     data['password'] = generate_password_hash(data.get('password'), method='sha256')
 
 
@@ -41,7 +46,6 @@ def game_get_preprocessor(instance_id=None, **kw):
 # Need the preprocessor to protect the endpoint with jwt
 @jwt_required
 def game_get_many_preprocessor(search_params=None, **kw):
-    print('game_get_many_preprocessor')
     pass
 
 
@@ -83,20 +87,29 @@ def game_patch_single_preprocessor(instance_id=None, data=None, **kw):
 
 apimanager.create_api(
     User,
-    url_prefix = app.config["BASE_API_URL"],
-    collection_name = "user",
-    methods =['GET','POST'],
-    exclude_columns=['password'],
-    preprocessors={'POST': [user_post_preprocessor], 'GET_SINGLE': [user_get_preprocessor], 'GET_MANY': [user_get_many_preprocessor]}
+    url_prefix      = app.config['BASE_API_URL'],
+    collection_name = 'user',
+    methods         = ['GET','POST'],
+    exclude_columns = ['password'],
+    preprocessors   = {
+        'POST'       : [user_post_preprocessor],
+        'GET_SINGLE' : [user_get_preprocessor],
+        'GET_MANY'   : [user_get_many_preprocessor]
+    }
 )
 
 apimanager.create_api(
     Game,
-    url_prefix=app.config["BASE_API_URL"],
-    collection_name="game",
-    methods =[ 'GET', 'POST', 'PATCH'],
-    exclude_columns=['user_id','user.password'],
-    preprocessors={'POST': [game_post_preprocessor], 'GET_SINGLE': [game_get_preprocessor],  'GET_MANY': [game_get_many_preprocessor], 'PATCH_SINGLE': [game_patch_single_preprocessor]}
+    url_prefix      = app.config['BASE_API_URL'],
+    collection_name = 'game',
+    methods         = ['GET', 'POST', 'PATCH'],
+    exclude_columns = ['user_id','user.password'],
+    preprocessors   = {
+        'POST'         : [game_post_preprocessor],
+        'GET_SINGLE'   : [game_get_preprocessor],
+        'GET_MANY'     : [game_get_many_preprocessor],
+        'PATCH_SINGLE' : [game_patch_single_preprocessor]
+    }
 )
 
 api = Api()
